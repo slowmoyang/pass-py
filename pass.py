@@ -8,13 +8,16 @@ from subprocess import Popen, PIPE
 import getpass
 import json
 from dataclasses import dataclass, asdict
+from secrets import token_bytes
+from base64 import b64encode
 import pyperclip
 
 
 CONFIG_PATH = Path(
     os.getenv(
         key='PASS_PY_CONFIG',
-        default=(Path.home() / '.pass-py.json'))
+        default=(Path.home() / '.pass-py.json')
+    )
 )
 
 
@@ -73,7 +76,7 @@ def list_passwords() -> None:
         print(pass_id)
 
 
-def get_password(password: str, copy: bool):
+def get_password(name: str, copy: bool) -> None:
     """docstirng for get_password
 
     :password: TODO
@@ -81,7 +84,7 @@ def get_password(password: str, copy: bool):
 
     """
     config = Config.from_json()
-    gpg_file = config.store / password
+    gpg_file = config.store / name
     gpg_file = gpg_file.with_suffix('.gpg')
     if not gpg_file.exists():
         raise FileNotFoundError(gpg_file)
@@ -112,6 +115,38 @@ def get_password(password: str, copy: bool):
         print(password)
 
 
+# FIXME rename
+def _insert_password(name: str, password: str) -> None:
+    """docstirng for insert_password
+
+    :password: TODO
+    :copy: TODO
+
+    """
+    config = Config.from_json()
+
+    gpg_path = Path(config.store) / name
+    gpg_path.parent.mkdir(parents=True, exist_ok=True)
+
+    args = [
+        config.gpg,
+        '--encrypt',
+        '--recipient', config.user, # FIXME
+        '--output', str(gpg_path.with_suffix('.gpg')),
+        '--pinentry-mode', 'loopback',
+    ]
+
+    with Popen(args,
+               shell=False,
+               stdin=PIPE,
+               stdout=PIPE,
+               stderr=PIPE,
+               startupinfo=None,
+               env=None
+               ) as proc:
+        proc.communicate(input=bytes(password, 'utf-8'))
+
+
 class PasswordConfirmationFailureError(Exception):
     def __init__(self):
         super().__init__("Error: the entered passwords do not match.")
@@ -124,40 +159,25 @@ def insert_password(name):
     :copy: TODO
 
     """
-    config = Config.from_json()
-
     password = getpass.getpass(prompt=f'Enter password for {name}: ')
     password_check = getpass.getpass(prompt=f'Retype password for {name}: ')
     if password != password_check:
         raise PasswordConfirmationFailureError()
 
-    gpg_path = Path(config.store) / name
-    if not gpg_path.parent.exists():
-        gpg_path.parent.mkdir(parents=True)
-
-    args = [
-        config.gpg,
-        '--encrypt',
-        '--recipient', config.user, # FIXME
-        '--output', str(gpg_path.with_suffix('.gpg')),
-        '--pinentry-mode', 'loopback',
-    ]
-
-    password = bytes(password, 'utf-8')
-    with Popen(args,
-               shell=False,
-               stdin=PIPE,
-               stdout=PIPE,
-               stderr=PIPE,
-               startupinfo=None,
-               env=None
-               ) as proc:
-        proc.communicate(input=password)
+    _insert_password(name, password)
 
 
 # TODO add xkcd
-# TODO openssl
-# def generate_password():
+def generate_password(name: str | None = None, nbytes: int = 14):
+    password = b64encode(token_bytes(nbytes)).decode()
+    if name is None:
+        print()
+    else:
+        _insert_password(name, password)
+
+
+# TODO remove
+# def remove_password
 
 
 def main():
@@ -191,7 +211,7 @@ def main():
                                        help='get password')
     get_parser.set_defaults(func=get_password)
 
-    get_parser.add_argument('password')
+    get_parser.add_argument('name')
     get_parser.add_argument("-c", "--copy", action=BooleanOptionalAction,
                             default=False,
                             help="copy a password to clipboard")
@@ -212,8 +232,13 @@ def main():
     insert_parser.set_defaults(func=insert_password)
 
     ###########################################################################
-    # TODO generate
+    # generate
     ###########################################################################
+    generate_parser = subparsers.add_parser('generate', aliases=['gen'],
+                                            help='generate password')
+    generate_parser.set_defaults(func=generate_password)
+    generate_parser.add_argument('-n', '--name', type=str, default=None)
+    generate_parser.add_argument('--nbytes', type=int, default=14)
 
     ###########################################################################
     # help
