@@ -11,6 +11,7 @@ from dataclasses import dataclass, asdict
 from secrets import token_bytes
 from base64 import b64encode
 import pyperclip
+import argcomplete
 
 
 CONFIG_PATH = Path(
@@ -67,14 +68,20 @@ def print_config() -> None:
     print(f'user: {config.user:s}')
 
 
-def list_passwords() -> None:
+def _list_passwords() -> list[str]:
     """docstirng for list_passwords
     """
     config = Config.from_json()
+
+    output: list[str] = []
     for gpg_file in config.store.glob('**/*.gpg'):
         pass_id = str(gpg_file.relative_to(config.store).with_suffix(''))
-        print(pass_id)
+        output.append(pass_id)
+    return output
 
+def list_passwords() -> None:
+    for each in _list_passwords():
+        print(each)
 
 def get_password(name: str, copy: bool) -> None:
     """docstirng for get_password
@@ -171,7 +178,7 @@ def insert_password(name):
 def generate_password(name: str | None = None, nbytes: int = 14):
     password = b64encode(token_bytes(nbytes)).decode()
     if name is None:
-        print()
+        print(password)
     else:
         _insert_password(name, password)
 
@@ -211,7 +218,8 @@ def main():
                                        help='get password')
     get_parser.set_defaults(func=get_password)
 
-    get_parser.add_argument('name')
+    password_names = _list_passwords()
+    get_parser.add_argument('name', choices=password_names)
     get_parser.add_argument("-c", "--copy", action=BooleanOptionalAction,
                             default=False,
                             help="copy a password to clipboard")
@@ -249,6 +257,7 @@ def main():
     ###########################################################################
     # Run!
     ###########################################################################
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
     args = vars(args)
     func = args.pop('func')
